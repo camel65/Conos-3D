@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cónicas Cuánticas 3D</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            cursor: default;
+        }
+
+        /* Botón de Inicio Blanco Centrado */
+        #btn-inicio {
+            padding: 18px 45px;
+            font-size: 1.6rem;
+            color: #ffffff;
+            background: transparent;
+            border: 2px solid #ffffff;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.4);
+            z-index: 10;
+        }
+
+        #btn-inicio:hover {
+            background-color: #ffffff;
+            color: #000000;
+            box-shadow: 0 0 35px rgba(255, 255, 255, 0.9);
+            transform: scale(1.08);
+        }
+
+        /* Controles Flotantes Superior Derecha */
+        .controles {
+            display: none;
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .btn-control {
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-control:hover {
+            background: #ffffff;
+            color: #000000;
+            transform: scale(1.05);
+        }
+
+        #btn-salir:hover {
+            background: rgba(255, 0, 85, 0.9);
+            border-color: #ff0055;
+            color: #ffffff;
+        }
+
+        /* Contenedor del Lienzo */
+        #canvas-container {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- CAMBIA AQUÍ LA RUTA A TU ARCHIVO DE AUDIO -->
+    <audio id="miMusica" src="musica30.mp3" preload="auto" loop></audio>
+
+    <!-- Botón de Inicio Blanco -->
+    <button id="btn-inicio">Inicio</button>
+
+    <!-- Controles flotantes -->
+    <div class="controles" id="panel-controles">
+        <button class="btn-control" id="btn-audio">🔊 Sonido: ON</button>
+        <button class="btn-control" id="btn-salir">Salir</button>
+    </div>
+
+    <!-- Contenedor del lienzo -->
+    <div id="canvas-container">
+        <canvas id="coneCanvas"></canvas>
+    </div>
+
+    <script>
+        const btnInicio = document.getElementById('btn-inicio');
+        const btnSalir = document.getElementById('btn-salir');
+        const btnAudio = document.getElementById('btn-audio');
+        const panelControles = document.getElementById('panel-controles');
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('coneCanvas');
+        const ctx = canvas.getContext('2d');
+        const audioElement = document.getElementById('miMusica');
+
+        let animacionId = null;
+        let activo = false;
+
+        let rotX = 0, rotY = 0, rotZ = 0;
+        let tiempoInicio = 0;
+
+        // Parámetros de generación de conos (Normalizados)
+        const N_ANILLOS = 14;
+        const PARTIS_POR_ANILLO = 24;
+
+        // Generador de Cono Simple
+        function generarConoSimple() {
+            let vertices = [];
+            let lineas = [];
+            
+            // Vértice superior (Ápice)
+            vertices.push([0, -1.0, 0]);
+
+            // Anillos desde la cúspide a la base
+            for (let i = 1; i <= N_ANILLOS; i++) {
+                let h = -1.0 + (i / N_ANILLOS) * 2.0; // De -1 a 1 en Y
+                let r = (i / N_ANILLOS) * 0.95;       // Radio proporcional a Y
+
+                for (let j = 0; j < PARTIS_POR_ANILLO; j++) {
+                    let ang = (j / PARTIS_POR_ANILLO) * Math.PI * 2;
+                    vertices.push([Math.cos(ang) * r, h, Math.sin(ang) * r]);
+                }
+            }
+
+            // Generar generatrices (líneas del ápice a la base)
+            for (let j = 0; j < PARTIS_POR_ANILLO; j += 2) {
+                let prevIdx = 0;
+                for (let i = 1; i <= N_ANILLOS; i++) {
+                    let currIdx = 1 + (i - 1) * PARTIS_POR_ANILLO + j;
+                    lineas.push([prevIdx, currIdx]);
+                    prevIdx = currIdx;
+                }
+            }
+
+            return { v: vertices, l: lineas };
+        }
+
+        // Generador de Doble Cono Opuesto (Reloj de arena / Cono doble)
+        function generarDobleCono() {
+            let vertices = [];
+            let lineas = [];
+
+            for (let i = 0; i <= N_ANILLOS; i++) {
+                let h = -1.0 + (i / N_ANILLOS) * 2.0;
+                let r = Math.abs(h) * 0.9; // El radio decrece al centro y crece en los extremos
+
+                for (let j = 0; j < PARTIS_POR_ANILLO; j++) {
+                    let ang = (j / PARTIS_POR_ANILLO) * Math.PI * 2;
+                    vertices.push([Math.cos(ang) * r, h, Math.sin(ang) * r]);
+                }
+            }
+
+            return { v: vertices, l: lineas };
+        }
+
+        // Generador de Cono Truncado Entrelazado (Espiral cónica)
+        function generarConoEspiral() {
+            let vertices = [];
+            let lineas = [];
+
+            for (let i = 0; i <= N_ANILLOS; i++) {
+                let h = -1.0 + (i / N_ANILLOS) * 2.0;
+                let r = (0.2 + (i / N_ANILLOS) * 0.75);
+
+                for (let j = 0; j < PARTIS_POR_ANILLO; j++) {
+                    let ang = (j / PARTIS_POR_ANILLO) * Math.PI * 2 + (i * 0.15);
+                    vertices.push([Math.cos(ang) * r, h, Math.sin(ang) * r]);
+                }
+            }
+
+            return { v: vertices, l: lineas };
+        }
+
+        const conoSimple = generarConoSimple();
+        const dobleCono = generarDobleCono();
+        const conoEspiral = generarConoEspiral();
+
+        const formasConicas = [conoSimple, dobleCono, conoEspiral];
+
+        function ajustarCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', () => {
+            if (activo) ajustarCanvas();
+        });
+
+        btnAudio.addEventListener('click', (e) => {
+            e.stopPropagation();
+            audioElement.muted = !audioElement.muted;
+            btnAudio.textContent = audioElement.muted ? "🔇 Sonido: OFF" : "🔊 Sonido: ON";
+        });
+
+        btnInicio.addEventListener('click', () => {
+            btnInicio.style.display = 'none';
+            panelControles.style.display = 'flex';
+            canvasContainer.style.display = 'block';
+
+            ajustarCanvas();
+            reiniciarBucle();
+            activo = true;
+
+            audioElement.currentTime = 0;
+            audioElement.muted = false;
+            btnAudio.textContent = "🔊 Sonido: ON";
+            audioElement.play().catch(err => console.log(err));
+
+            iniciarAnimacion();
+        });
+
+        btnSalir.addEventListener('click', (e) => {
+            e.stopPropagation();
+            activo = false;
+            if (animacionId) cancelAnimationFrame(animacionId);
+
+            audioElement.pause();
+            audioElement.currentTime = 0;
+
+            canvasContainer.style.display = 'none';
+            panelControles.style.display = 'none';
+            btnInicio.style.display = 'block';
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        function reiniciarBucle() {
+            tiempoInicio = Date.now();
+            rotX = 0; rotY = 0; rotZ = 0;
+        }
+
+        function smoothstep(min, max, value) {
+            let x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+            return x * x * (3 - 2 * x);
+        }
+
+        function iniciarAnimacion() {
+            if (!activo) return;
+
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const ahora = Date.now();
+            const transcurrido = (ahora - tiempoInicio) * 0.001;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            // Tamaño del círculo contenedor neón (límite infranqueable)
+            const radioCirculo = Math.min(canvas.width, canvas.height) * 0.34;
+
+            rotX += 0.009;
+            rotY += 0.014;
+            rotZ += 0.004;
+
+            // Transición suave entre las 3 geometrías cónicas
+            const tiempoCiclo = transcurrido % 18;
+            let idxOrigen = 0, idxDestino = 1;
+            let progresoFase = 0;
+
+            if (tiempoCiclo < 6) {
+                idxOrigen = 0; idxDestino = 1;
+                progresoFase = smoothstep(2.5, 5.5, tiempoCiclo);
+            } else if (tiempoCiclo < 12) {
+                idxOrigen = 1; idxDestino = 2;
+                progresoFase = smoothstep(8.5, 11.5, tiempoCiclo);
+            } else {
+                idxOrigen = 2; idxDestino = 0;
+                progresoFase = smoothstep(14.5, 17.5, tiempoCiclo);
+            }
+
+            const f1 = formasConicas[idxOrigen];
+            const f2 = formasConicas[idxDestino];
+
+            const numV = Math.max(f1.v.length, f2.v.length);
+            const verticesInterpolados = [];
+
+            for (let i = 0; i < numV; i++) {
+                let vA = f1.v[i % f1.v.length];
+                let vB = f2.v[i % f2.v.length];
+
+                let x = vA[0] + (vB[0] - vA[0]) * progresoFase;
+                let y = vA[1] + (vB[1] - vA[1]) * progresoFase;
+                let z = vA[2] + (vB[2] - vA[2]) * progresoFase;
+
+                verticesInterpolados.push([x, y, z]);
+            }
+
+            // Escala ajustada para mantener toda la figura confinada estrictamente en el círculo
+            const escalaBase = radioCirculo * 0.62;
+            const proyectados = [];
+
+            verticesInterpolados.forEach(v => {
+                let x = v[0], y = v[1], z = v[2];
+
+                let cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+                let y1 = y * cosX - z * sinX;
+                let z1 = y * sinX + z * cosX;
+
+                let cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+                let x2 = x * cosY + z1 * sinY;
+                let z2 = -x * sinY + z1 * cosY;
+
+                let cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+                let x3 = x2 * cosZ - y1 * sinZ;
+                let y3 = x2 * sinZ + y1 * cosZ;
+
+                let d = 4.0;
+                let perspectiva = d / (d + z2);
+
+                proyectados.push({
+                    px: cx + x3 * escalaBase * perspectiva,
+                    py: cy + y3 * escalaBase * perspectiva,
+                    escala: perspectiva
+                });
+            });
+
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#ffffff';
+
+            // Dibujar círculo delimitador de neón
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radioCirculo, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Dibujar los anillos elípticos de las secciones cónicas
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 1.2;
+
+            for (let i = 0; i <= N_ANILLOS; i++) {
+                ctx.beginPath();
+                for (let j = 0; j < PARTIS_POR_ANILLO; j++) {
+                    let idx = (i * PARTIS_POR_ANILLO + j) % proyectados.length;
+                    let pt = proyectados[idx];
+                    if (j === 0) ctx.moveTo(pt.px, pt.py);
+                    else ctx.lineTo(pt.px, pt.py);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Dibujar líneas generatrices que conectan la estructura longitudinalmente
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = 1.4;
+
+            for (let j = 0; j < PARTIS_POR_ANILLO; j += 3) {
+                ctx.beginPath();
+                for (let i = 0; i <= N_ANILLOS; i++) {
+                    let idx = (i * PARTIS_POR_ANILLO + j) % proyectados.length;
+                    let pt = proyectados[idx];
+                    if (i === 0) ctx.moveTo(pt.px, pt.py);
+                    else ctx.lineTo(pt.px, pt.py);
+                }
+                ctx.stroke();
+            }
+
+            // Vértices luminosos en las uniones clave
+            proyectados.forEach((pt, idx) => {
+                if (idx % 4 === 0) {
+                    ctx.beginPath();
+                    ctx.arc(pt.px, pt.py, 2.5 * pt.escala, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                }
+            });
+
+            ctx.restore();
+
+            animacionId = requestAnimationFrame(iniciarAnimacion);
+        }
+    </script>
+</body>
+</html>
